@@ -1,0 +1,232 @@
+---
+title: "Predicting Absenteeism At Work"
+author: Pinky Malempati
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+   html_document:
+      previewLinks: TRUE      
+      theme: cosmo      
+      toc: true      
+      toc_float: true
+      toc_depth: 3      
+      fontsize: 12pt
+      includes:
+      after_body: appendix.md
+      
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Load Libraries
+library(readr)
+library(caret)
+library(dplyr)
+library(DataExplorer)
+library(fBasics)
+library(ggplot2)
+library(gmodels)
+library(gridExtra)
+library(grid)
+library(Hmisc)
+library(kernlab)
+library(magrittr)
+library(gmodels)
+library(naivebayes)
+require(randomForest)
+library(rpart)
+library(rpart.plot)
+library(robustbase)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# import datasets and get a quick view
+#absent <- read_csv("/Users/babu/Downloads/Absenteeism_at_work.csv")
+
+absent <- read.csv(file = "Absenteeism_at_work.csv", head = TRUE, sep=";")
+
+
+# getting a brief look at the data
+glimpse(absent)
+
+# getting a brief description and summary of our dataset
+describe(absent)
+#basicStats(absent)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Lets Check For Missing Data
+plot_missing(absent)
+sum(is.na(absent))
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# convert variables to factors
+lapply(absent, levels)
+
+
+
+absent$Reason.for.absence <- factor(absent$Reason.for.absence)
+absent$Month.of.absence <- factor(absent$Month.of.absence)
+absent$Day.of.the.week <- factor(absent$Day.of.the.week)
+absent$Seasons <- factor(absent$Seasons)
+absent$Disciplinary.failure <- factor(absent$Disciplinary.failure)
+absent$Education <- factor(absent$Education)
+absent$Son <- factor(absent$Son)
+absent$Social.drinker <- factor(absent$Social.drinker)
+absent$Social.smoker <- factor(absent$Social.smoker)
+
+sapply(absent, class)
+glimpse(absent)
+
+# Assign Data to New Variable
+A <- absent
+levels(A$Reason.for.absence) <- list('Certain infectious and parasitic diseases'='0','Neoplasms'='1','Diseases of the blood'='2',
+                                            'Endocrine and metabolic diseases'='3','Mental and behavioural disorders'='4', 
+                                            'Diseases of the nervous system'='5','Diseases of the eye and adnexa'='6',
+                                            'Diseases of the ear and mastoid process'='7','Diseases of the circulatory system'='8',
+                                            'Diseases of the respiratory system'='9','Diseases of the digestive system'='10', 
+                                            'Diseases of the skin and subcutaneous tissue'='11',
+                                            'Diseases of the musculoskeletal system and connective tissue'='12', 
+                                            'Diseases of the genitourinary system'='13','Pregnancy, childbirth and the puerperium'='14',
+                                            'Certain conditions originating in the perinatal'='15', 
+                                            'Congenital malformations, deformations and chromosomal abnormalities'= '16',
+                                            'Symptoms, signs and abnormal clinical  findings'='17',
+                                            'Injury, poisoning and certain other consequences of external causes'= '18',
+                                            'causes of morbidity and mortality'='19',
+                                            'Factors influencing health status and contact with health services'='21',
+                                            'patient follow-up'='22','medical consultation'='23','blood donation'='24',
+                                            'laboratory examination'='25','unjustified absence'='26','physiotherapy'='27',
+                                            'dental consultation'='28')
+
+levels(A$Month.of.absence) <- list('None'='0','Jan'='1','Feb'='2','Mar'='3','Apr'='4','May'='5',
+'Jun'='6','Jul'='7','Aug'='8','Sep'='9','Oct'='10','Nov'='11','Dec'='12')
+levels(absent$Day.of.the.week) <- list('Monday'='2','Tuesday'='3','Wednesday'='4','Thursday'='5',
+                                         'Friday'='6')
+levels(A$Seasons) <- list("summer"=1, "autumn"=2, "winter"=3, "spring"=4)
+levels(A$Disciplinary.failure) <- list('No'='0','Yes'='1')
+levels(A$Education) <- list('highschool'='1','graduate'='2','postgraduate'='3','master and doctor'='4')
+levels(A$Social.drinker) <- list('No'='0','Yes'='1')
+levels(A$Social.smoker) <- list('No'='0','Yes'='1')
+
+lapply(A, levels)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# explore absenteeism variable
+mean(A$Absenteeism.time.in.hours)
+shapiro.test(A$Absenteeism.time.in.hours)
+skewness(A$Absenteeism.time.in.hours)
+
+# Box Plot For Our Predictor Variable
+boxplot(A$Absenteeism.time.in.hours, col=(c("grey","red")),
+        main="Absenteeism Rate", ylab="Absenteeism Rate")
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Distribution of Factor Variables
+Pet <- ggplot(A, aes(`Pet`, fill = `Pet`)) + geom_bar(fill = "lightblue") + 
+  xlab("Number of Pets") + ylab("Frequency")
+Children <- ggplot(A, aes(x = `Son`, fill = `Son`)) + geom_bar() + 
+  xlab("Number of Children") + ylab("Frequency")
+grid.arrange(Pet, Children,  nrow = 1)
+
+Day <- ggplot(A, aes(Day.of.the.week, fill = Day.of.the.week)) + geom_bar() + 
+  xlab("Day of the week") + ylab("Frequency")
+Seasons <- ggplot(A, aes(x = `Seasons` , fill = `Seasons`)) + geom_bar() + 
+  xlab("Seasons") + ylab("Frequency")
+grid.arrange(Day, Seasons,  nrow = 1)
+
+DrinkerSmoker <- ggplot(A, aes(x = Social.smoker, fill = Social.drinker)) + geom_bar() + 
+  xlab("Smoker or Drinker") + ylab("Frequency")
+Discipline <- ggplot(A, aes(x = Disciplinary.failure, fill = Disciplinary.failure)) + geom_bar() + 
+  xlab("Are They Disciplined") + ylab("Frequency")
+grid.arrange(DrinkerSmoker, Discipline,  nrow = 1)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Most Contributing Reason Factors
+reason <-  as.data.frame(A %>% group_by(Reason.for.absence) %>% 
+                           summarise(count= n(), Percentage = round(count*100/nrow(absent),1)) %>% 
+                           arrange(desc(count)))
+ggplot(reason,aes(x = reorder(Reason.for.absence, Percentage), y = Percentage, fill= Reason.for.absence)) + 
+  geom_bar(stat = 'identity') + coord_flip() + theme(legend.position='none') +  
+  geom_text(aes(label = Percentage), vjust = 0.5, hjust = 1.1) + xlab('Reason for absence')
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Shuffle the dataset; Spliting Train and Test
+n <- nrow(A)
+shuffle <- A[sample(n),]
+train <- shuffle[1:round(0.8 * n),]
+test <- shuffle[(round(0.8 * n) + 1):n,]
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+# Tree Based Model With Training DataSet
+m.rpart <- rpart(Absenteeism.time.in.hours ~ ., data = train)
+m.rpart
+
+rpart.plot(m.rpart)
+rpart.plot(m.rpart, digits=4, fallen.leaves = TRUE, type = 3, extra = 101)
+summary(m.rpart)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+summary(test$Absenteeism.time.in.hours)
+typeof(m.rpart)
+typeof(test$Absenteeism.time.in.hours)
+summary(m.rpart)
+
+summary(train$Absenteeism.time.in.hours)
+p.rpart <- predict(m.rpart, test)
+summary(p.rpart)
+cor(p.rpart, test$Absenteeism.time.in.hours)
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+glimpse(train)
+
+prop.table(table(train$Absenteeism.time.in.hours))
+train$Absenteeism.time.in.hours <- as.factor(train$Absenteeism.time.in.hours)
+train$Absenteeism.time.in.hours
+
+```
+
+
+```{r warning = FALSE, message = FALSE, echo = FALSE}
+class <- naive_bayes(train$Absenteeism.time.in.hours ~ ., data = train)
+
+
+class
+
+test$Absenteeism.time.in.hours <- as.factor(test$Absenteeism.time.in.hours)
+testp <- predict(class, newdata = test) 
+table(testp, test$Absenteeism.time.in.hours)
+
+```
